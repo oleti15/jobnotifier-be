@@ -51,3 +51,34 @@ class JobListCreateView(APIView):
             serializer.save()  # saves new job
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+from django.core.mail import send_mail
+from django.conf import settings
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def job_create_api(request):
+    serializer = JobSerializer(data=request.data)
+    if serializer.is_valid():
+        job = serializer.save()
+
+        # Notify matching subscribers
+        keyword = job.title.lower()
+        location = job.location.lower()
+
+        subscribers = Subscriber.objects.filter(
+            keyword__icontains=keyword
+        )
+        if job.location:
+            subscribers = subscribers.filter(location__icontains=location)
+
+        for sub in subscribers:
+            send_mail(
+                subject=f"New Job Alert: {job.title}",
+                message=f"A new job matching your interests has been posted:\n\n{job.title}\n{job.description}\nLocation: {job.location}",
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[sub.email],
+                fail_silently=True,
+            )
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
